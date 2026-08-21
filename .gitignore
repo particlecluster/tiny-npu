@@ -1,0 +1,32 @@
+﻿# Simulation outputs
+sim/vectors/
+*.vcd
+*.out
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Vivado
+*.jou
+*.log
+.Xil/
+vivado_pid*/
+xsim.dir/
+*.str
+*.pb
+*.wdb
+
+# NPU binaries
+*.bin
+*.hex
+
+# OS
+.DS_Store
+Thumbs.db
