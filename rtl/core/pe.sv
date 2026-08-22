@@ -1,62 +1,69 @@
-﻿// =============================================================================
-// pe.sv — Processing Element (the single cell of the systolic array)
+// =============================================================================
+// pe.sv — True Weight-Stationary Processing Element (TPU Architecture)
 //
-// HOW IT WORKS:
-//   This is a 1-cycle pipelined MAC (Multiply-ACcumulate) unit.
-//   Think of it like one stage in your CPU pipeline — data flows in,
-//   something happens, data flows out, all in one clock cycle.
+// DATAFLOW:
+//   1. WEIGHT LOAD PHASE (load_wgt = 1):
+//      - Weights stream vertically down the array: wgt_in -> wgt_reg & wgt_out
+//      - Each PE latches its assigned weight into stationary wgt_reg.
 //
-//   In the systolic array grid:
-//     - Activations stream LEFT → RIGHT (like data in a shift register)
-//     - Weights flow TOP → BOTTOM (passed down each cycle)
-//     - Partial sums accumulate TOP → BOTTOM (add our contribution each cycle)
+//   2. COMPUTE PHASE (load_wgt = 0):
+//      - Weights remain STATIONARY in wgt_reg.
+//      - Activations stream horizontally (LEFT -> RIGHT).
+//      - Partial sums accumulate vertically (TOP -> BOTTOM).
 //
-//   Each cycle: psum_out = psum_in + (weight * activation)
-//
-// PARAMETERS:
-//   DATA_WIDTH : bit-width of inputs (8 for INT8)
-//   ACC_WIDTH  : bit-width of accumulator (32 to avoid overflow)
+//   MATH (in Compute Phase):
+//      psum_out = psum_in + (act_in * wgt_reg)
 //
 // =============================================================================
 
 `timescale 1ns/1ps
 
 module pe #(
-    parameter int DATA_WIDTH = 8,   // INT8 inputs
-    parameter int ACC_WIDTH  = 32   // INT32 accumulator (prevents overflow)
+    parameter int DATA_WIDTH = 8,   // INT8
+    parameter int ACC_WIDTH  = 32   // INT32
 )(
     input  logic                          clk,
-    input  logic                          rst_n,   // active-low reset
+    input  logic                          rst_n,
+    input  logic                          load_wgt, // 1 = load weight, 0 = compute
 
-    // ---- Activation path: flows LEFT → RIGHT across the array ----
+    // Activations: stream LEFT -> RIGHT
     input  logic signed [DATA_WIDTH-1:0]  act_in,
     output logic signed [DATA_WIDTH-1:0]  act_out,
 
-    // ---- Weight path: flows TOP → BOTTOM down the array ----
+    // Weights: stream TOP -> BOTTOM during loading
     input  logic signed [DATA_WIDTH-1:0]  wgt_in,
     output logic signed [DATA_WIDTH-1:0]  wgt_out,
 
-    // ---- Partial sum path: accumulates TOP → BOTTOM ----
-    // psum_in comes from the PE above; we add our MAC and pass it down
+    // Partial sums: accumulate TOP -> BOTTOM during compute
     input  logic signed [ACC_WIDTH-1:0]   psum_in,
     output logic signed [ACC_WIDTH-1:0]   psum_out
 );
 
-    // -------------------------------------------------------------------------
-    // Registered pipeline stage
-    // All outputs update on the rising edge of clk.
-    // This is what makes the systolic array "systolic" — everything is
-    // registered and moves in lockstep, one step per clock cycle.
-    // -------------------------------------------------------------------------
+    // Stationary weight register
+    logic signed [DATA_WIDTH-1:0] wgt_reg;
+
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             act_out  <= '0;
             wgt_out  <= '0;
+            wgt_reg  <= '0;
             psum_out <= '0;
         end else begin
-            act_out  <= act_in;                         // pass activation right
-            wgt_out  <= wgt_in;                         // pass weight down
-            psum_out <= psum_in + (wgt_in * act_in);   // MAC + accumulate
+            // 1. Weight loading path
+            wgt_out <= wgt_in;
+            if (load_wgt) begin
+                wgt_reg <= wgt_in;
+            end
+
+            // 2. Activation pipeline path (shifts right)
+            act_out <= act_in;
+
+            // 3. MAC Compute path (accumulates down)
+            if (load_wgt) begin
+                psum_out <= psum_in;
+            end else begin
+                psum_out <= psum_in + (act_in * wgt_reg);
+            end
         end
     end
 
